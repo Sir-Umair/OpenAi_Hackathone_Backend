@@ -1,0 +1,37 @@
+# Web and configuration
+fastapi>=0.110.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-multipart>=0.0.9
+email-validator>=2.0.0
+
+# Persistence and security
+motor>=3.3.0
+pymongo>=4.6.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+bcrypt>=4.0.0
+
+# AI orchestration and providers
+langgraph>=0.1.0
+anthropic>=0.30.0
+openai>=1.30.0
+tenacity>=8.3.0
+
+# Analysis, embeddings, and vector stores
+tree-sitter>=0.21.0
+tree-sitter-language-pack>=0.3.0
+semgrep>=1.65.0
+
+# Operations
+structlog>=24.0.0
+aiofiles>=23.2.0
+GitPython>=3.1.40
+
+# Testing and quality
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+httpx>=0.27.0
+ruff>=0.4.0
+mypy>=1.10.0

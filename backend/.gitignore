@@ -1,0 +1,9 @@
+node_modules/
+.next/
+__pycache__/
+*.py[cod]
+.venv/
+.env
+chroma_data/
+uploads/
+tmp/
