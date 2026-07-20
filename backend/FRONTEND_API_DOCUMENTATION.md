@@ -44,6 +44,7 @@ A normal hosted web frontend cannot send a visitor's local disk path to a remote
 | `GET` | `/health` | Health check before enabling actions. |
 | `GET` | `/api/v1/conversion-targets` | Populate target-stack dropdown. |
 | `POST` | `/api/v1/projects/analyze` | Analyze a project and show report, suggestions, and roadmap. |
+| `POST` | `/api/v1/projects/analyze/github` | Clone and analyze a public GitHub repository. |
 | `POST` | `/api/v1/projects/convert` | Convert selected project-relative files or folders into a separate output directory. |
 
 ## 5. Recommended Frontend Flow
@@ -51,7 +52,7 @@ A normal hosted web frontend cannot send a visitor's local disk path to a remote
 ```mermaid
 flowchart TD
     A[Check health] --> B[Load conversion targets]
-    B --> C[User enters project name and local path]
+    B --> C[User enters local folder path or GitHub URL]
     C --> D[Analyze project]
     D --> E[Show languages, findings, roadmap, recommendations]
     E --> F[User selects files or folders]
@@ -62,7 +63,7 @@ flowchart TD
 
 Suggested screens:
 
-1. **Analyze screen**: project name, absolute project path, preferred target stack.
+1. **Analyze screen**: project name, source selector, absolute project path or public GitHub URL, and preferred target stack.
 2. **Report screen**: language counts, findings grouped by severity, migration recommendations, and roadmap.
 3. **Conversion screen**: selected source paths, target-stack dropdown/custom target input, optional output directory.
 4. **Result screen**: generated file list, code preview/diff, output folder, and generated-code findings.
@@ -147,6 +148,8 @@ Starts a synchronous project analysis. Disable the submit button and show a load
   "name": "Legacy Shop",
   "path": "E:\\projects\\legacy-shop",
   "status": "complete",
+  "source_type": "local_folder",
+  "repository_url": null,
   "created_at": "2026-07-19T12:30:00Z",
   "languages": {
     "PHP": 18,
@@ -199,7 +202,51 @@ Starts a synchronous project analysis. Disable the submit button and show a load
 }
 ```
 
-## 10. `POST /api/v1/projects/convert`
+## 10. `POST /api/v1/projects/analyze/github`
+
+Use this route when the user selects **GitHub repository** instead of **Local folder**. It accepts only public HTTPS GitHub repository URLs, clones the repository into the backend workspace, and then runs the same analysis workflow.
+
+### Request body
+
+```json
+{
+  "name": "FastAPI Example",
+  "repository_url": "https://github.com/owner/repository",
+  "target_stack": "Next.js + FastAPI"
+}
+```
+
+| Field | Required | Type | Rules |
+| --- | --- | --- | --- |
+| `name` | Yes | string | 1 to 120 characters. |
+| `repository_url` | Yes | string | Public `https://github.com/owner/repository` URL; `.git` suffix is allowed. |
+| `target_stack` | No | string | Defaults to `Next.js + FastAPI`. |
+
+### Response: `200 OK`
+
+The response has the same fields as local-folder analysis, plus:
+
+```json
+{
+  "source_type": "github_repository",
+  "repository_url": "https://github.com/owner/repository",
+  "path": "E:\\hackthon\\OpenAi_Hackathone_Backend\\backend\\repository_workspace\\repository_a1b2c3d4"
+}
+```
+
+The returned `path` is the backend-managed checkout. Use it as `path` in a later conversion request if the user wants to convert files from that repository.
+
+### Error: `400 Bad Request`
+
+```json
+{
+  "detail": "Use a public HTTPS GitHub URL such as https://github.com/owner/repository."
+}
+```
+
+Private GitHub repositories are not supported by this endpoint yet. Add GitHub OAuth/App authentication before supporting them; do not send access tokens in the request body.
+
+## 11. `POST /api/v1/projects/convert`
 
 Generates converted code for selected files or folders. This endpoint needs `ANTHROPIC_API_KEY` configured in the backend environment.
 
