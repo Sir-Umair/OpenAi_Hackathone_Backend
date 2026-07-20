@@ -8,5 +8,6 @@ class Settings(BaseSettings):
     chroma_path: str = "./chroma_data"
     repository_workspace: str = "./repository_workspace"
     cors_origins: str = "http://localhost:3000"
+    max_upload_size_bytes: int = 1024 * 1024 * 1024  # 1GB
 
 settings = Settings()

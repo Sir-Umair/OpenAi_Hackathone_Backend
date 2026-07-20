@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import io
 import json
+import logging
 import shutil
 import subprocess
+import time
+import zipfile
 from collections import Counter
 from pathlib import Path
 from urllib.parse import urlparse
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
 
 from .models import Finding, GeneratedFile, MigrationRecommendation, RoadmapStep
 
@@ -246,3 +252,44 @@ def store_embeddings(project_id: str, files: list[Path], chroma_path: str) -> No
 
 def new_id() -> str:
     return str(uuid4())
+
+def extract_zip_securely(file_path: Path, extract_to: Path) -> None:
+    """Extract a ZIP file securely, preventing Zip Slip path traversal."""
+    extract_to = extract_to.resolve()
+    logger.info(f"Extraction started to {extract_to}")
+    start_time = time.time()
+    try:
+        with zipfile.ZipFile(file_path, 'r') as zf:
+            infolist = zf.infolist()
+            if not infolist:
+                raise ValueError("Uploaded ZIP archive is empty.")
+            
+            for member in infolist:
+                # Resolve the intended absolute path of the extracted file
+                target_path = (extract_to / member.filename).resolve()
+                # Ensure it falls strictly within the target directory
+                if extract_to not in target_path.parents and target_path != extract_to:
+                    raise ValueError(f"Zip slip vulnerability detected in file: {member.filename}")
+            
+            zf.extractall(extract_to)
+    except zipfile.BadZipFile as e:
+        raise ValueError("Uploaded file is not a valid ZIP archive or is corrupted.") from e
+        
+    logger.info(f"Extraction completed in {time.time() - start_time:.2f}s")
+
+
+def find_project_root(extracted_dir: Path) -> Path:
+    """
+    Intelligently locate the project root.
+    If the ZIP contains a single top-level folder, assume that's the root.
+    Otherwise, the extraction directory itself is the root.
+    """
+    contents = list(extracted_dir.iterdir())
+    # If there is exactly one item and it is a directory, it's a wrapper folder
+    if len(contents) == 1 and contents[0].is_dir():
+        root = contents[0]
+        logger.info(f"Project root detected inside wrapper folder: {root.name}")
+        return root
+    
+    logger.info(f"Project root detected at extraction root")
+    return extracted_dir
