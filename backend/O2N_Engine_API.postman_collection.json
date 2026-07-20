@@ -1,0 +1,163 @@
+{
+  "info": {
+    "_postman_id": "4d230aa5-c1d6-4cbe-84c1-68d19f631e0c",
+    "name": "O2N Engine API - Local Development",
+    "description": "Postman collection for O2N Engine project analysis and AI-assisted code conversion. Set PROJECT_PATH to a real folder on the same machine as the backend. Conversion requires ANTHROPIC_API_KEY in the backend .env file.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8081"
+    },
+    {
+      "key": "projectPath",
+      "value": "E:\\projects\\legacy-shop"
+    },
+    {
+      "key": "outputDirectory",
+      "value": "E:\\converted-projects\\legacy-shop-next-fastapi"
+    }
+  ],
+  "item": [
+    {
+      "name": "Backend Status",
+      "item": [
+        {
+          "name": "Root Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/"
+          }
+        },
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Health endpoint returns OK\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql(\"ok\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Analysis",
+      "item": [
+        {
+          "name": "Get Conversion Targets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/api/v1/conversion-targets"
+          }
+        },
+        {
+          "name": "Analyze Project",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Legacy Shop\",\n  \"path\": \"{{projectPath}}\",\n  \"target_stack\": \"Next.js + FastAPI\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/projects/analyze"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Analysis returns a complete report\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql(\"complete\");",
+                  "  pm.expect(body).to.have.property(\"languages\");",
+                  "  pm.expect(body).to.have.property(\"findings\");",
+                  "  pm.expect(body).to.have.property(\"roadmap\");",
+                  "  pm.expect(body).to.have.property(\"recommendations\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Analyze Public GitHub Repository",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Public GitHub Repository\",\n  \"repository_url\": \"https://github.com/owner/repository\",\n  \"target_stack\": \"Next.js + FastAPI\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/projects/analyze/github"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Conversion",
+      "item": [
+        {
+          "name": "Convert Selected Code",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Legacy Shop Migration\",\n  \"path\": \"{{projectPath}}\",\n  \"source_paths\": [\n    \"api/users.php\",\n    \"public/js/app.js\"\n  ],\n  \"target_stack\": \"Next.js + FastAPI\",\n  \"output_directory\": \"{{outputDirectory}}\"\n}"
+            },
+            "url": "{{baseUrl}}/api/v1/projects/convert"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Conversion returns generated files\", function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"generated_files\");",
+                  "  pm.expect(body).to.have.property(\"output_directory\");",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

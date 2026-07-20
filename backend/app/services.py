@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from collections import Counter
 from pathlib import Path
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .models import Finding, GeneratedFile, MigrationRecommendation, RoadmapStep
@@ -31,6 +33,10 @@ CONVERSION_TARGETS = [
 
 class ConversionError(ValueError):
     """Raised when a conversion cannot be generated safely."""
+
+
+class RepositoryError(ValueError):
+    """Raised when a GitHub repository cannot be cloned safely."""
 
 def source_files(root: Path) -> list[Path]:
     return [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in LANGUAGE_SUFFIXES and not any(x in IGNORED_DIRS for x in p.parts)]
@@ -184,6 +190,34 @@ def write_conversion(output_directory: Path, files: list[GeneratedFile]) -> None
         destination = output_directory / file.path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(file.content, encoding="utf-8")
+
+
+def clone_public_github_repository(repository_url: str, workspace: str, project_id: str) -> Path:
+    """Clone a public GitHub repository into the backend-managed workspace."""
+    parsed = urlparse(repository_url)
+    path_parts = [part for part in parsed.path.split("/") if part]
+    if (
+        parsed.scheme != "https"
+        or parsed.netloc.lower() not in {"github.com", "www.github.com"}
+        or len(path_parts) != 2
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise RepositoryError("Use a public HTTPS GitHub URL such as https://github.com/owner/repository.")
+
+    repository_name = path_parts[1].removesuffix(".git")
+    if not repository_name:
+        raise RepositoryError("GitHub repository URL is invalid.")
+    destination = Path(workspace).resolve() / f"{repository_name}_{project_id[:8]}"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        from git import Repo
+        Repo.clone_from(repository_url, destination, depth=1)
+    except Exception as error:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise RepositoryError("GitHub repository could not be cloned. Confirm it is public and the URL is correct.") from error
+    return destination
 
 def persist_report(report: dict, uri: str, database: str) -> None:
     """Store reports in MongoDB if it is configured and reachable."""

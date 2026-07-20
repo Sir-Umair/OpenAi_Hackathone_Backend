@@ -4,12 +4,14 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .models import AnalyzeRequest, ConversionReport, ConvertProjectRequest, ProjectReport
+from .models import AnalyzeRequest, ConversionReport, ConvertProjectRequest, GitHubAnalyzeRequest, ProjectReport
 from .services import (
     CONVERSION_TARGETS,
     ConversionError,
+    RepositoryError,
     claude_conversion,
     claude_roadmap,
+    clone_public_github_repository,
     migration_recommendations,
     new_id,
     persist_report,
@@ -51,23 +53,19 @@ def conversion_targets():
     return {"targets": CONVERSION_TARGETS, "custom_target_supported": True}
 
 
-@app.post("/api/v1/projects/analyze", response_model=ProjectReport)
-def analyze_project(request: AnalyzeRequest):
-    root = Path(request.path).resolve()
-
-    if not root.is_dir():
-        raise HTTPException(
-            status_code=400,
-            detail="The provided project path does not exist or is not a folder.",
-        )
-
-    project_id = new_id()
-
+def build_project_report(
+    name: str,
+    root: Path,
+    target_stack: str,
+    project_id: str,
+    source_type: str,
+    repository_url: str | None = None,
+) -> ProjectReport:
     state = analysis_workflow.invoke(
         {
             "project_id": project_id,
             "path": str(root),
-            "target_stack": request.target_stack,
+            "target_stack": target_stack,
             "files": [],
             "languages": {},
             "findings": [],
@@ -78,8 +76,10 @@ def analyze_project(request: AnalyzeRequest):
 
     report = ProjectReport(
         id=project_id,
-        name=request.name,
+        name=name,
         path=str(root),
+        source_type=source_type,
+        repository_url=repository_url,
         created_at=datetime.now(timezone.utc),
         languages=languages,
         findings=state["findings"],
@@ -87,7 +87,7 @@ def analyze_project(request: AnalyzeRequest):
         roadmap=claude_roadmap(
             languages,
             state["findings"],
-            request.target_stack,
+            target_stack,
             settings.anthropic_api_key,
         ),
         summary=f"Scanned {len(state['files'])} source files across {len(languages)} language(s).",
@@ -100,6 +100,45 @@ def analyze_project(request: AnalyzeRequest):
     )
 
     return report
+
+
+@app.post("/api/v1/projects/analyze", response_model=ProjectReport)
+def analyze_project(request: AnalyzeRequest):
+    root = Path(request.path).expanduser().resolve()
+    if not root.is_dir():
+        raise HTTPException(
+            status_code=400,
+            detail="The provided project path does not exist or is not a folder.",
+        )
+    return build_project_report(
+        name=request.name,
+        root=root,
+        target_stack=request.target_stack,
+        project_id=new_id(),
+        source_type="local_folder",
+    )
+
+
+@app.post("/api/v1/projects/analyze/github", response_model=ProjectReport)
+def analyze_github_project(request: GitHubAnalyzeRequest):
+    """Clone a public GitHub repository and analyze its checked-out source code."""
+    project_id = new_id()
+    try:
+        root = clone_public_github_repository(
+            request.repository_url,
+            settings.repository_workspace,
+            project_id,
+        )
+    except RepositoryError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return build_project_report(
+        name=request.name,
+        root=root,
+        target_stack=request.target_stack,
+        project_id=project_id,
+        source_type="github_repository",
+        repository_url=request.repository_url,
+    )
 
 
 @app.post("/api/v1/projects/convert", response_model=ConversionReport)

@@ -8,6 +8,12 @@ class AnalyzeRequest(BaseModel):
     target_stack: str = "Next.js + FastAPI"
 
 
+class GitHubAnalyzeRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    repository_url: str = Field(min_length=1, description="Public HTTPS GitHub repository URL")
+    target_stack: str = "Next.js + FastAPI"
+
+
 class Finding(BaseModel):
     severity: str
     category: str
@@ -55,6 +61,8 @@ class ProjectReport(BaseModel):
     id: str
     name: str
     path: str
+    source_type: str = "local_folder"
+    repository_url: str | None = None
     status: str = "complete"
     created_at: datetime
     languages: dict[str, int]
