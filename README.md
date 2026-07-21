@@ -1,24 +1,21 @@
-# O2N Engine Backend
+## Development Process
 
-Enterprise backend foundation for the O2N Engine software-modernization platform.
+To accelerate the initial development of the project, I used **OpenAI Codex CLI** to generate the backend foundation.
 
-## Prerequisites
+First, I prepared a detailed prompt describing the complete backend architecture, including the desired folder structure, required modules, API organization, dependencies, configuration, and project requirements. I also specified the technologies to be used, the expected functionality of each component, and the libraries that needed to be included.
 
-- Python 3.12 or 3.13 (recommended for the Tree-sitter, Semgrep, FAISS, and embedding dependencies)
-- MongoDB 7+
+Based on this prompt, Codex generated the complete initial project structure with the appropriate directories and files. After generating the foundation, I integrated the generated files into my project and continued development by implementing the business logic, refining the architecture, and customizing the generated code to meet the project's requirements.
 
-## Install and run
+It was an Awesome but a bit unstable comaratively claude cli .
 
-```powershell
-cd "F:\OpenAi Hackathone\backend"
-# Configure the existing .env file. JWT_SECRET_KEY must be a cryptographically random value.
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
+The project is primarily built using:
 
-Verify the service at `http://localhost:8000/health`; interactive OpenAPI documentation is at `http://localhost:8000/docs`.
+- Python
+- FastAPI
+- LangGraph
+- MongoDB
+- Nextjs
+- semgrep
+- tree sitter
 
-Set `ENVIRONMENT=production` only after configuring both `MONGODB_URI` and a 32+ character `JWT_SECRET_KEY`.
+OpenAI Codex CLI was used only to bootstrap the project's initial structure and accelerate development. All subsequent implementation, integration, customization, testing, and feature development were completed as part of the project development process.
