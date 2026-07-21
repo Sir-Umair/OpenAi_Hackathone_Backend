@@ -78,22 +78,41 @@ def migration_recommendations(files: list[Path]) -> list[MigrationRecommendation
     return recommendations
 
 def tree_sitter_inventory(files: list[Path]) -> list[Finding]:
-    """Use Tree-sitter syntax parsing where the optional language pack is present."""
+    """Use Tree-sitter syntax parsing where the optional language pack is present.
+    Returns an empty list when the parser is unavailable — no dummy findings surfaced to the user."""
     try:
         from tree_sitter_language_pack import get_parser
         parser = get_parser("python")
         invalid = [p for p in files if p.suffix == ".py" and parser.parse(p.read_bytes()).root_node.has_error]
         return [Finding(severity="medium", category="syntax", message="Tree-sitter found a syntax error", file=str(p)) for p in invalid]
     except Exception:
-        return [Finding(severity="info", category="parser", message="Tree-sitter parser unavailable; semantic parsing was skipped")]
+        logger.info("Tree-sitter language pack unavailable; skipping semantic parsing.")
+        return []
 
 def semgrep_findings(root: Path) -> list[Finding]:
+    """Run Semgrep security rules against the project root. Returns an empty list if Semgrep is
+    not installed or times out — the caller should not surface a dummy finding to the user."""
     try:
-        completed = subprocess.run(["semgrep", "scan", "--config=auto", "--json", str(root)], capture_output=True, text=True, timeout=120)
+        completed = subprocess.run(
+            ["semgrep", "scan", "--config=auto", "--json", str(root)],
+            capture_output=True, text=True, timeout=120,
+        )
         payload = json.loads(completed.stdout or "{}")
-        return [Finding(severity=item.get("extra", {}).get("severity", "info").lower(), category="security", message=item.get("extra", {}).get("message", "Semgrep finding"), file=item.get("path")) for item in payload.get("results", [])]
-    except (FileNotFoundError, subprocess.TimeoutExpired, json.JSONDecodeError):
-        return [Finding(severity="info", category="security", message="Semgrep is not available; install it to run security rules")]
+        return [
+            Finding(
+                severity=item.get("extra", {}).get("severity", "info").lower(),
+                category="security",
+                message=item.get("extra", {}).get("message", "Semgrep finding"),
+                file=item.get("path"),
+            )
+            for item in payload.get("results", [])
+        ]
+    except FileNotFoundError:
+        logger.info("Semgrep is not installed; skipping security scan.")
+        return []
+    except (subprocess.TimeoutExpired, json.JSONDecodeError) as exc:
+        logger.warning("Semgrep scan failed: %s", exc)
+        return []
 
 def default_roadmap(languages: dict[str, int], target: str) -> list[RoadmapStep]:
     source = ", ".join(languages) or "the existing application"
@@ -118,7 +137,7 @@ def claude_roadmap(languages: dict[str, int], findings: list[Finding], target: s
     try:
         from anthropic import Anthropic
         message = Anthropic(api_key=api_key).messages.create(
-            model="claude-sonnet-4-20250514", max_tokens=900,
+            model="claude-3-5-sonnet-20241022", max_tokens=900,
             messages=[{"role": "user", "content": json.dumps(prompt)}],
         )
         content = message.content[0].text.strip().removeprefix("```json").removesuffix("```").strip()
@@ -143,6 +162,72 @@ def selected_source_files(root: Path, source_paths: list[str]) -> list[Path]:
     return list(dict.fromkeys(selected))
 
 
+# Stack-specific guidance injected into every conversion prompt so Claude produces
+# idiomatic, runnable code rather than a generic rewrite.
+_STACK_HINTS: dict[str, str] = {
+    "Next.js + FastAPI": (
+        "Frontend: use Next.js 14 App Router conventions — pages go in app/<route>/page.tsx, "
+        "shared components in components/, API calls via fetch or axios from client components. "
+        "Backend: use FastAPI with Pydantic v2 models, APIRouter, and dependency injection; "
+        "routes go in routers/<domain>.py and are registered in main.py via app.include_router()."
+    ),
+    "React + Node.js/Express": (
+        "Frontend: functional React components with hooks; files in src/components/ and src/pages/. "
+        "Backend: Express 4 with async/await, routes in routes/<domain>.js, middleware in middleware/."
+    ),
+    "React + Django": (
+        "Frontend: functional React components, files in frontend/src/. "
+        "Backend: Django 4 with Django REST Framework; serializers in serializers.py, views in views.py, "
+        "URLs registered in urls.py."
+    ),
+    "Vue + FastAPI": (
+        "Frontend: Vue 3 Composition API with <script setup>; single-file components in src/components/. "
+        "Backend: FastAPI with Pydantic v2, APIRouter, routes in routers/."
+    ),
+    "Angular + Spring Boot": (
+        "Frontend: Angular 17 standalone components using signals; files in src/app/. "
+        "Backend: Spring Boot 3 with @RestController, @Service, and @Repository layers."
+    ),
+    "Django": (
+        "Django 4 monolith: models in models.py, views in views.py, serializers in serializers.py "
+        "(DRF), URLs in urls.py. Use class-based views where appropriate."
+    ),
+    "FastAPI": (
+        "FastAPI with Pydantic v2; routes grouped in routers/<domain>.py, registered in main.py. "
+        "Use async def for I/O-bound handlers and Depends() for shared dependencies."
+    ),
+    "Laravel": (
+        "Laravel 10: controllers in app/Http/Controllers/, models in app/Models/, "
+        "routes in routes/api.php, validation via Form Requests."
+    ),
+    "Node.js/Express": (
+        "Express 4 with ESM; routes in routes/, middleware in middleware/, "
+        "controllers in controllers/, async/await throughout."
+    ),
+    ".NET Web API": (
+        ".NET 8 minimal API or controller-based Web API; "
+        "controllers in Controllers/, models in Models/, DTOs in DTOs/."
+    ),
+    "Java Spring Boot": (
+        "Spring Boot 3 with @RestController, @Service, @Repository; "
+        "entities in model/, DTOs in dto/, repositories extending JpaRepository."
+    ),
+}
+
+_SYSTEM_PROMPT = (
+    "You are an expert code modernization engine. "
+    "Your sole task is to convert legacy source files to a new technology stack. "
+    "Rules you MUST follow:\n"
+    "1. Output ONLY a valid JSON array — no markdown fences, no prose, no explanations.\n"
+    "2. Each element must have exactly two keys: \"path\" (relative, no '..', no leading slash) "
+    "and \"content\" (the full converted file content as a string).\n"
+    "3. Use idiomatic conventions of the target stack (correct file names, folder structure, "
+    "imports, and patterns).\n"
+    "4. Preserve all business logic from the source while adapting it to the target stack.\n"
+    "5. Generate only the files required for this conversion slice — do not invent extra files."
+)
+
+
 def claude_conversion(root: Path, files: list[Path], target_stack: str, api_key: str | None) -> list[GeneratedFile]:
     """Generate a bounded file conversion and validate every returned output path."""
     if not api_key:
@@ -151,6 +236,7 @@ def claude_conversion(root: Path, files: list[Path], target_stack: str, api_key:
         raise ConversionError("No supported source files were selected for conversion.")
     if len(files) > 20:
         raise ConversionError("Select at most 20 source files per conversion request.")
+
     source = [
         {
             "path": str(file.relative_to(root)).replace("\\", "/"),
@@ -158,32 +244,44 @@ def claude_conversion(root: Path, files: list[Path], target_stack: str, api_key:
         }
         for file in files
     ]
-    prompt = {
+
+    stack_hint = _STACK_HINTS.get(target_stack, "")
+    user_content = json.dumps({
         "target_stack": target_stack,
+        "stack_conventions": stack_hint,
         "source_files": source,
         "instruction": (
-            "Convert these files into the target stack. Return JSON only as an array of objects with "
-            "path and content. Paths must be relative, must not contain '..', and must not use absolute paths. "
-            "Generate only files needed for this selected slice. Do not include markdown fences."
+            f"Convert the source files above to {target_stack}. "
+            f"Follow the stack conventions exactly. "
+            "Return a JSON array where each object has 'path' and 'content'. "
+            "Paths must be relative, must not contain '..', and must not be absolute."
         ),
-    }
+    })
+
     try:
         from anthropic import Anthropic
         message = Anthropic(api_key=api_key).messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=8000,
-            messages=[{"role": "user", "content": json.dumps(prompt)}],
+            system=_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_content}],
         )
-        content = message.content[0].text.strip().removeprefix("```json").removesuffix("```").strip()
-        generated = [GeneratedFile.model_validate(item) for item in json.loads(content)]
+        raw = message.content[0].text.strip()
+        # Strip any accidental markdown fences Claude may still emit
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw
+            raw = raw.rsplit("```", 1)[0].strip()
+        generated = [GeneratedFile.model_validate(item) for item in json.loads(raw)]
     except Exception as error:
-        raise ConversionError("The AI conversion response could not be generated or parsed.") from error
+        logger.exception("Claude conversion error: %s", error)
+        raise ConversionError(f"AI conversion error: {error}") from error
+
     if not generated:
         raise ConversionError("The AI conversion did not return any files.")
-    for file in generated:
-        output_path = Path(file.path)
+    for gfile in generated:
+        output_path = Path(gfile.path)
         if output_path.is_absolute() or ".." in output_path.parts:
-            raise ConversionError("The AI returned an unsafe output path.")
+            raise ConversionError(f"The AI returned an unsafe output path: {gfile.path}")
     return generated
 
 
