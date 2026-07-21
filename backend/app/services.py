@@ -221,6 +221,7 @@ def clone_public_github_repository(repository_url: str, workspace: str, project_
         from git import Repo
         Repo.clone_from(repository_url, destination, depth=1)
     except Exception as error:
+        logger.exception("Failed to clone repository")
         shutil.rmtree(destination, ignore_errors=True)
         raise RepositoryError("GitHub repository could not be cloned. Confirm it is public and the URL is correct.") from error
     return destination
